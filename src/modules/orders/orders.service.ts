@@ -3,8 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { Order, OrderStatus } from './entities/order.entity';
-import { SubBooking, BookingStatus } from './entities/sub-booking.entity';
+import { SubBooking, BookingStatus, ServiceType } from './entities/sub-booking.entity';
 import { PaginationDto, PaginatedResult } from '../../common/dto/pagination.dto';
+import { CreateOrderDto } from './dto/create-order.dto';
 
 @Injectable()
 export class OrdersService {
@@ -99,6 +100,71 @@ export class OrdersService {
     });
 
     return this.orderRepository.save(order);
+  }
+
+  async createOrder(userId: string, dto: CreateOrderDto): Promise<Order> {
+    // Determine order status based on payment method
+    let orderStatus = OrderStatus.PENDING;
+    if (dto.status === 'confirmed') {
+      orderStatus = OrderStatus.CONFIRMED;
+    } else if (dto.status === 'under_review') {
+      orderStatus = OrderStatus.PROCESSING;
+    }
+
+    // Create the order
+    const order = this.orderRepository.create({
+      userId,
+      quoteId: dto.quoteId,
+      orderNumber: this.generateOrderNumber(),
+      status: orderStatus,
+      subtotal: dto.subtotal,
+      discount: dto.discount || 0,
+      taxes: dto.taxes || 0,
+      total: dto.total,
+      currency: dto.currency,
+      paymentMethod: dto.paymentMethod,
+      paymentReference: dto.paymentReference,
+      paidAt: dto.status === 'confirmed' ? new Date() : undefined,
+    });
+
+    const savedOrder = await this.orderRepository.save(order);
+
+    // Create sub-bookings for each item
+    const subBookings = dto.items.map((item) => {
+      const bookingStatus = orderStatus === OrderStatus.CONFIRMED 
+        ? BookingStatus.CONFIRMED 
+        : BookingStatus.PENDING;
+
+      return this.bookingRepository.create({
+        orderId: savedOrder.id,
+        serviceType: item.serviceType,
+        bookingReference: item.bookingReference || this.generateBookingReference(item.serviceType),
+        status: bookingStatus,
+        details: { ...item.details, title: item.title },
+        travelers: item.travelers,
+        price: item.price,
+        currency: item.currency,
+        serviceDate: item.serviceDate ? new Date(item.serviceDate) : undefined,
+      });
+    });
+
+    await this.bookingRepository.save(subBookings);
+
+    // Reload with sub-bookings
+    return this.getOrder(userId, savedOrder.id);
+  }
+
+  private generateBookingReference(serviceType: ServiceType): string {
+    const prefixes: Record<ServiceType, string> = {
+      [ServiceType.FLIGHT]: 'FLT',
+      [ServiceType.HOTEL]: 'HTL',
+      [ServiceType.VISA]: 'VIS',
+      [ServiceType.HAJJ]: 'HJJ',
+      [ServiceType.PACKAGE]: 'PKG',
+    };
+    const prefix = prefixes[serviceType] || 'BKG';
+    const timestamp = Date.now().toString().slice(-6);
+    return `${prefix}-${timestamp}`;
   }
 
   private generateOrderNumber(): string {

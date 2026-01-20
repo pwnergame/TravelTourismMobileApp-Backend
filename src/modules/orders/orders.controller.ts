@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 
 import { OrdersService } from './orders.service';
@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { CreateOrderDto } from './dto/create-order.dto';
 
 @ApiTags('Orders')
 @Controller('orders')
@@ -13,6 +14,12 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 @ApiBearerAuth('JWT-auth')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
+
+  @Post()
+  @ApiOperation({ summary: 'Create a new order' })
+  async createOrder(@CurrentUser() user: User, @Body() dto: CreateOrderDto) {
+    return this.ordersService.createOrder(user.id, dto);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Get user orders' })
